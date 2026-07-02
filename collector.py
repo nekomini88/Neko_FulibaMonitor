@@ -47,7 +47,10 @@ def gather_sources() -> List[Dict]:
             pub_date = time_tag['datetime']
         elif time_tag and time_tag.get_text(strip=True):
             # We'll store the raw string; scorer can try to parse if needed
-            pub_date = time_tag.get_text(strip=True)
+            pd = time_tag.get_text(strip=True)
+            # If it looks like a date, we keep it; else None
+            # For simplicity, we accept any non-empty string as date
+            pub_date = pd
         items.append({
             "title": title,
             "link": link,
