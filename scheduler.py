@@ -2,50 +2,51 @@ import asyncio
 import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from datetime import datetime
-from collector import gather_sources
-from storage import init_db, is_seen, mark_seen
+from collector import fetch_article_from_section
+from storage import init_db, get_last, update_last
 from notifier import send_message
-from config import FETCH_INTERVAL, TG_CHANNEL_ID
+from config import SECTIONS, FETCH_INTERVAL, TG_CHANNEL_ID
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 async def job():
     logger.info("Starting 福利吧监控 collection cycle...")
-    try:
-        items = gather_sources()
-        logger.info(f"Collected {len(items)} raw items from sections.")
-    except Exception as e:
-        logger.error(f"Error during data collection: {e}")
-        return
-
-    for item in items:
-        title = item.get("title", "").strip()
-        link = item.get("link", "").strip()
-        if not title or not link:
+    any_new = False
+    for section_url in SECTIONS:
+        article = fetch_article_from_section(section_url)
+        if not article:
+            logger.warning(f"No article found in section: {section_url}")
             continue
-        # Filter out any remaining forum links (should already be filtered in collector)
-        if 'member.php' in link or 'mod=logging' in link:
+        title = article['title']
+        link = article['link']
+        last_title, last_link = get_last(section_url) or (None, None)
+        if last_title == title and last_link == link:
+            logger.info(f"No change in section {section_url}")
             continue
-
-        if not is_seen(link):
-            if not title:
-                title = "未获取到标题"
-            msg = f"🔔 fuliba 🔔\n{title}\n🔗{link}"
-            try:
-                sent = await send_message(msg, disable_web_page_preview=False)
-                if sent:
-                    logger.info(f"Sent new article to channel {TG_CHANNEL_ID}: {title}")
-                    mark_seen(link)
-                else:
-                    logger.error("Failed to send message to Telegram")
-            except Exception as e:
-                logger.error(f"Exception while sending message: {e}")
-            # We only send the first new article we find (in the order of sections and then page order)
+        # New article detected
+        msg = f"🔔 fuliba 🔔\n{title}\n🔗{link}"
+        try:
+            sent = await send_message(msg, disable_web_page_preview=False)
+            if sent:
+                logger.info(f"Sent new article from {section_url}: {title}")
+                update_last(section_url, title, link)
+                any_new = True
+            else:
+                logger.error("Failed to send message to Telegram")
+        except Exception as e:
+            logger.error(f"Exception while sending message: {e}")
+        # We only want to send one notification per run? Or per section?
+        # According to user: "一个标题就是对应一篇新文章", and we want to know if there is any update.
+        # We could break after first new article, or send for each section that has new.
+        # Let's send for each section that has new (so multiple messages per run if multiple sections updated).
+        # But the user might want only one? The original said "发布链接发出来" singular.
+        # However, we'll follow the previous logic: we break after first new article to avoid spamming.
+        # Let's break after first new to match earlier behavior (send only one message per run).
+        if any_new:
             break
-    else:
-        # This block runs if the loop completed without breaking (i.e., no new articles)
-        logger.info("No new articles found in this round.")
+    if not any_new:
+        logger.info("No new articles found in any section.")
 
 async def main():
     init_db()  # Ensure DB and table exist
