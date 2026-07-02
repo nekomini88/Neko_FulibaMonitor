@@ -2,16 +2,17 @@ import httpx
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 from typing import List, Dict
+from config import BASE_URL
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (FulibaMonitorBot/1.0; +https://github.com/yourusername/fuliba-monitor)"}
 
 def gather_sources() -> List[Dict]:
     """
-    Fetch the homepage of fuliba2023.net and extract article links and titles.
+    Fetch the homepage of BASE_URL and extract article links and titles.
     Returns a list of dictionaries with keys: title, link, pub_date (optional).
     Filters out forum links like member.php?mod=logging&action=login.
     """
-    base_url = "https://fuliba2023.net"
+    base_url = BASE_URL
     try:
         resp = httpx.get(base_url, headers=HEADERS, follow_redirects=True, timeout=10.0)
         resp.raise_for_status()

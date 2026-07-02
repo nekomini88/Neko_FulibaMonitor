@@ -9,5 +9,8 @@ TG_CHANNEL_ID = -1004235880182
 # Database file path
 DB_PATH = "fuliba_monitor.db"
 
-# Fetch interval in seconds (default 1 hour = 3600 seconds)
+# Fetch interval in seconds (default 60 minutes = 3600 seconds)
 FETCH_INTERVAL = 3600
+
+# Base URL for the site to monitor
+BASE_URL = "https://fuliba2025.net"
