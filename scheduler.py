@@ -3,7 +3,7 @@ import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from datetime import datetime
 from collector import gather_sources
-from storage import init_db, get_latest_link, save_latest_link
+from storage import init_db, is_seen, mark_seen
 from notifier import send_message
 from config import FETCH_INTERVAL, TG_CHANNEL_ID
 
@@ -14,43 +14,38 @@ async def job():
     logger.info("Starting 福利吧监控 collection cycle...")
     try:
         items = gather_sources()
-        logger.info(f"Collected {len(items)} raw items from sources.")
+        logger.info(f"Collected {len(items)} raw items from sections.")
     except Exception as e:
         logger.error(f"Error during data collection: {e}")
         return
 
-    if not items:
-        logger.info("No items found.")
-        return
+    for item in items:
+        title = item.get("title", "").strip()
+        link = item.get("link", "").strip()
+        if not title or not link:
+            continue
+        # Filter out any remaining forum links (should already be filtered in collector)
+        if 'member.php' in link or 'mod=logging' in link:
+            continue
 
-    # Assume the first item is the latest article
-    item = items[0]
-    title = item.get("title", "").strip()
-    link = item.get("link", "").strip()
-    if not title:
-        title = "未获取到标题"
-    if not link:
-        logger.warning("Item has no link, skipping.")
-        return
-
-    # Check if we have already sent this link
-    latest_link = get_latest_link()
-    if latest_link == link:
-        logger.info("No new article (same as latest).")
-        return
-
-    # Build message exactly as requested
-    msg = f"🔔 fuliba 🔔\n{title}\n🔗{link}"
-    try:
-        sent = await send_message(msg, disable_web_page_preview=False)
-        if sent:
-            logger.info(f"Sent new article to channel {TG_CHANNEL_ID}: {title}")
-            # Save this link as the latest sent
-            save_latest_link(link)
-        else:
-            logger.error("Failed to send message to Telegram")
-    except Exception as e:
-        logger.error(f"Exception while sending message: {e}")
+        if not is_seen(link):
+            if not title:
+                title = "未获取到标题"
+            msg = f"🔔 fuliba 🔔\n{title}\n🔗{link}"
+            try:
+                sent = await send_message(msg, disable_web_page_preview=False)
+                if sent:
+                    logger.info(f"Sent new article to channel {TG_CHANNEL_ID}: {title}")
+                    mark_seen(link)
+                else:
+                    logger.error("Failed to send message to Telegram")
+            except Exception as e:
+                logger.error(f"Exception while sending message: {e}")
+            # We only send the first new article we find (in the order of sections and then page order)
+            break
+    else:
+        # This block runs if the loop completed without breaking (i.e., no new articles)
+        logger.info("No new articles found in this round.")
 
 async def main():
     init_db()  # Ensure DB and table exist

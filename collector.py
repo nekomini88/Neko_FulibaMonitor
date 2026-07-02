@@ -2,22 +2,21 @@ import httpx
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 from typing import List, Dict
-from config import BASE_URL
+from config import SECTIONS
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (FulibaMonitorBot/1.0; +https://github.com/yourusername/fuliba-monitor)"}
 
-def gather_sources() -> List[Dict]:
+def fetch_section(url: str) -> List[Dict]:
     """
-    Fetch the homepage of BASE_URL and extract article links and titles.
+    Fetch a given section URL and extract article links and titles.
     Returns a list of dictionaries with keys: title, link, pub_date (optional).
     Filters out forum links like member.php?mod=logging&action=login.
     """
-    base_url = BASE_URL
     try:
-        resp = httpx.get(base_url, headers=HEADERS, follow_redirects=True, timeout=10.0)
+        resp = httpx.get(url, headers=HEADERS, follow_redirects=True, timeout=10.0)
         resp.raise_for_status()
     except Exception as e:
-        print(f"Error fetching {base_url}: {e}")
+        print(f"Error fetching {url}: {e}")
         return []
 
     soup = BeautifulSoup(resp.text, 'html.parser')
@@ -29,9 +28,9 @@ def gather_sources() -> List[Dict]:
         if not href:
             continue
         # Make absolute URL
-        link = urljoin(base_url, href)
+        link = urljoin(url, href)
         # Only keep links on the same domain
-        if urlparse(link).netloc != urlparse(base_url).netloc:
+        if urlparse(link).netloc != urlparse(url).netloc:
             continue
         # Filter out forum links
         if 'member.php' in link or 'mod=logging' in link:
@@ -47,10 +46,7 @@ def gather_sources() -> List[Dict]:
             pub_date = time_tag['datetime']
         elif time_tag and time_tag.get_text(strip=True):
             # We'll store the raw string; scorer can try to parse if needed
-            pd = time_tag.get_text(strip=True)
-            # If it looks like a date, we keep it; else None
-            # For simplicity, we accept any non-empty string as date
-            pub_date = pd
+            pub_date = time_tag.get_text(strip=True)
         items.append({
             "title": title,
             "link": link,
@@ -58,5 +54,17 @@ def gather_sources() -> List[Dict]:
         })
 
     # The items are in the order they appear on the page; we assume the first is the latest.
-    # We'll return all, but scheduler will take the first.
     return items
+
+def gather_sources() -> List[Dict]:
+    """
+    Gather articles from all sections defined in config.SECTIONS.
+    Returns a list of article dicts ordered by section order and then by appearance on page.
+    """
+    all_items = []
+    for section_url in SECTIONS:
+        items = fetch_section(section_url)
+        if items:
+            # We extend with items from this section
+            all_items.extend(items)
+    return all_items
